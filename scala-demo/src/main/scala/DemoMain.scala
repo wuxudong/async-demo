@@ -34,29 +34,17 @@ class DemoHandler(io: ActorRef) extends HttpServiceActor {
       path("sum-demo") {
         requestContext =>
           val start = System.currentTimeMillis()
-          (io ? Get("http://127.0.0.1:8888/random")).mapTo[HttpResponse].map {
-            res => res.entity.asString.toInt
-          }.flatMap {
-            p1 =>
-              (io ? Get("http://127.0.0.1:8888/random")).mapTo[HttpResponse].map {
-                res => res.entity.asString.toInt
-              }.map {
-                p2 =>
-                  (p1, p2)
-              }
-          }.flatMap {
-            case (p1, p2) =>
-              (io ? Get(s"http://127.0.0.1:8888/add?p1=${p1}&p2=${p2}")).mapTo[HttpResponse].map {
-                res =>
-                  val sum = res.entity.asString.toInt
-                  (p1, p2, sum)
-              }
-
-          }.onSuccess {
-            case (p1, p2, sum) =>
-              val after = System.currentTimeMillis()
-              println(s"sum  times spent ${after - start}")
-              requestContext.complete(s"${p1} + ${p2} = ${sum}")
+          for {
+            res1 <- (io ? Get("http://127.0.0.1:8888/random")).mapTo[HttpResponse]
+            p1 = res1.entity.asString.toInt
+            res2 <- (io ? Get("http://127.0.0.1:8888/random")).mapTo[HttpResponse]
+            p2 = res2.entity.asString.toInt
+            res3 <- (io ? Get(s"http://127.0.0.1:8888/add?p1=${p1}&p2=${p2}")).mapTo[HttpResponse]
+            sum = res3.entity.asString.toInt
+          } {
+            val after = System.currentTimeMillis()
+            println(s"sum  times spent ${after - start}")
+            requestContext.complete(s"${p1} + ${p2} = ${sum}")
           }
       } ~
         path("morra-demo") {
@@ -66,15 +54,13 @@ class DemoHandler(io: ActorRef) extends HttpServiceActor {
                 val start = System.currentTimeMillis()
 
                 val uids = params("uids")
-                val futures = for (uid <- uids) yield {
-                  (io ? Get(s"http://127.0.0.1:8888/random?uid=${uid}")).mapTo[HttpResponse].map {
-                    res => uid -> res.entity.asString.toInt
-                  }
+                val futures = uids map {
+                  uid =>
+                    (io ? Get(s"http://127.0.0.1:8888/random?uid=${uid}")).mapTo[HttpResponse] map (res => uid -> res.entity.asString.toInt)
                 }
 
                 Future.reduce(futures) {
-                  (max, x) =>
-                    if (x._2 > max._2) x else max
+                  (max, x) => if (x._2 > max._2) x else max
                 }.onSuccess {
                   case (winner, guess) =>
                     val after = System.currentTimeMillis()
